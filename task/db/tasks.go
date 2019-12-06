@@ -23,7 +23,15 @@ func Init(dbPath string) error {
 	}
 	return db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(taskBucket)
-		return err
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucketIfNotExists(getCompletedTasksBucket())
+		if err != nil {
+			return err
+		}
+		return nil
 	})
 }
 
@@ -40,6 +48,42 @@ func CreateTask(task string) (int, error) {
 		return -1, err
 	}
 	return id, nil
+}
+
+func CompleteTask(task Task) error {
+	return db.Update(func(tx *bolt.Tx) error {
+		err := DeleteTask(task.Key, tx)
+		if err != nil {
+			return err
+		}
+
+		b := tx.Bucket(getCompletedTasksBucket())
+		err = b.Put(itob(task.Key), []byte(task.Value))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func CompletedTasks() ([]Task, error) {
+	var tasks []Task
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(getCompletedTasksBucket())
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			tasks = append(tasks, Task{
+				Key:   btoi(k),
+				Value: string(v),
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
 
 func AllTasks() ([]Task, error) {
@@ -61,11 +105,15 @@ func AllTasks() ([]Task, error) {
 	return tasks, nil
 }
 
-func DeleteTask(id int) error {
-	return db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(taskBucket)
-		return b.Delete(itob(id))
-	})
+func DeleteTask(id int, tx *bolt.Tx) error {
+	if tx == nil {
+		return db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket(taskBucket)
+			return b.Delete(itob(id))
+		})
+	}
+	b := tx.Bucket(taskBucket)
+	return b.Delete(itob(id))
 }
 
 func itob(v int) []byte {
@@ -76,4 +124,9 @@ func itob(v int) []byte {
 
 func btoi(b []byte) int {
 	return int(binary.BigEndian.Uint64(b))
+}
+
+func getCompletedTasksBucket() []byte {
+	currentDay := time.Now().Format("2006-01-02")
+	return []byte(currentDay)
 }

@@ -8,10 +8,10 @@ import (
 	"strconv"
 )
 
-// doCmd represents the do command
-var doCmd = &cobra.Command{
-	Use:   "do",
-	Short: "Mark a task as completed",
+// rmCmd represents the rm command
+var rmCmd = &cobra.Command{
+	Use:   "rm",
+	Short: "Deletes tasks",
 	Run: func(cmd *cobra.Command, args []string) {
 		var ids []int
 		for _, arg := range args {
@@ -35,16 +35,16 @@ var doCmd = &cobra.Command{
 				continue
 			}
 			task := tasks[id-1]
-			err := db.CompleteTask(task)
+			err := db.DeleteTask(task.Key, nil)
 			if err != nil {
-				fmt.Printf("Failed to mark \"%d\" as completed. Error: %s\n", id, err)
+				fmt.Printf("Failed to delete \"%s\". Error: %s\n", task.Value, err)
 			} else {
-				fmt.Printf("Marked \"%d\" as completed.\n", id)
+				fmt.Printf("You have deleted the \"%s\" task.\n", task.Value)
 			}
 		}
 	},
 }
 
 func init() {
-	RootCmd.AddCommand(doCmd)
+	RootCmd.AddCommand(rmCmd)
 }
