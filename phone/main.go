@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"github.com/abhyuditjain/gophercices/phone/db"
 	_ "github.com/lib/pq"
 	"strings"
 )
@@ -22,24 +23,40 @@ func main() {
 		user,
 		password,
 	)
-
-	db, err := sql.Open("postgres", psqlInfo)
-	if err != nil {
-		panic(err)
-	}
-	err = resetDB(db, dbname)
-	if err != nil {
-		panic(err)
-	}
-	_ = db.Close()
+	must(db.Reset("postgres", psqlInfo, dbname))
 
 	psqlInfo = fmt.Sprintf("%s dbname=%s", psqlInfo, dbname)
-	db, err = sql.Open("postgres", psqlInfo)
-	must(err)
-	defer db.Close()
+	must(db.Migrate("postgres", psqlInfo))
 
-	must(db.Ping())
-	must(createPhoneNumbersTable(db))
+	phoneDb, err := db.Open("postgres", psqlInfo)
+	must(err)
+	defer phoneDb.Close()
+
+	if err := phoneDb.Seed(); err != nil {
+		panic(err)
+	}
+
+	phones, err := phoneDb.AllPhones()
+	must(err)
+	for _, p := range phones {
+		fmt.Printf("Working on... %+v\n", p)
+		number := normalize(p.Number)
+		if number != p.Number {
+			fmt.Println("Updating or removing...", number)
+			existing, err := phoneDb.FindPhone(number)
+			must(err)
+			if existing != nil {
+				// delete this number
+				must(phoneDb.DeletePhone(p.ID))
+			} else {
+				// update this number
+				p.Number = number
+				must(phoneDb.UpdatePhone(&p))
+			}
+		} else {
+			fmt.Println("No changes required")
+		}
+	}
 }
 
 func must(err error) {
@@ -48,33 +65,17 @@ func must(err error) {
 	}
 }
 
-func createDB(db *sql.DB, name string) error {
-	_, err := db.Exec("CREATE DATABASE " + name)
+func getPhone(db *sql.DB, id int) (string, error) {
+	var number string
+
+	err := db.QueryRow("SELECT * FROM phone_numbers WHERE id=$1", id).Scan(&id, &number)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return nil
+	return number, nil
 }
 
-func resetDB(db *sql.DB, name string) error {
-	_, err := db.Exec("DROP DATABASE IF EXISTS " + name)
-	if err != nil {
-		return err
-	}
-	return createDB(db, name)
-}
 
-func createPhoneNumbersTable(db *sql.DB) error {
-	statement := fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS phone_numbers (
-			id SERIAL,
-			value VARCHAR(255)
-		)
-	`)
-
-	_, err := db.Exec(statement)
-	return err
-}
 
 func normalize(phone string) string {
 	var normalized strings.Builder
